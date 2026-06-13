@@ -388,14 +388,42 @@ end
 local gaiaTeamID
 local cachedSnapshotCounts = {} -- [teamID] = last known snapshot count
 
+local function GetGaiaAllyTeamID()
+	if not gaiaTeamID then
+		return nil
+	end
+	return select(6, spGetTeamInfo(gaiaTeamID, false))
+end
+
+local function IsSelectableAllyTeam(allyID)
+	if allyID == nil then
+		return true
+	end
+
+	local gaiaAllyID = GetGaiaAllyTeamID()
+	for _, liveAllyID in ipairs(spGetAllyTeamList()) do
+		if liveAllyID == allyID and liveAllyID ~= gaiaAllyID then
+			return true
+		end
+	end
+	return false
+end
+
+local function HasSelectableAllyTeams()
+	local gaiaAllyID = GetGaiaAllyTeamID()
+	for _, liveAllyID in ipairs(spGetAllyTeamList()) do
+		if liveAllyID ~= gaiaAllyID then
+			return true
+		end
+	end
+	return false
+end
+
 --- Collect all team stat snapshots grouped by allyTeam.
 --- @return table<number, table<number, table[]>> allyTeamSnapshots Map of allyTeamID -> { teamID -> snapshots[] }
 local function CollectAllTeamSnapshots()
 	local result = {}
-	local gaiaAllyID
-	if gaiaTeamID then
-		gaiaAllyID = select(6, spGetTeamInfo(gaiaTeamID, false))
-	end
+	local gaiaAllyID = GetGaiaAllyTeamID()
 
 	for _, allyID in ipairs(spGetAllyTeamList()) do
 		if allyID ~= gaiaAllyID then
@@ -426,10 +454,7 @@ end
 --- @return boolean hasNew True if any team has new snapshots since last check
 local function HasNewSnapshots()
 	local hasNew = false
-	local gaiaAllyID
-	if gaiaTeamID then
-		gaiaAllyID = select(6, spGetTeamInfo(gaiaTeamID, false))
-	end
+	local gaiaAllyID = GetGaiaAllyTeamID()
 
 	for _, allyID in ipairs(spGetAllyTeamList()) do
 		if allyID ~= gaiaAllyID then
@@ -517,6 +542,9 @@ local windowAggregation = 8 -- merge N engine snapshots into one window
 local lastUIHiddenState = false
 local loadedPositionFromConfig = false
 local loadedSizeFromConfig = false
+local SELECTED_ALLY_TEAM_CONFIG_KEY = 'WeightedTeamStats_SelectedAllyTeam'
+local SELECTED_ALLY_TEAM_ALL = 'all'
+local SELECTED_ALLY_TEAM_MISSING = '__missing__'
 
 -- Cached computation results
 local cachedShares = {}
@@ -636,6 +664,23 @@ local function SaveSize()
 	end
 end
 
+local function DecodeSelectedAllyTeamConfig(value)
+	if value == SELECTED_ALLY_TEAM_MISSING then
+		return nil, false
+	end
+	if value == nil or value == '' or value == SELECTED_ALLY_TEAM_ALL then
+		return nil, true
+	end
+	return tonumber(value), true
+end
+
+local function EncodeSelectedAllyTeamConfig(allyID)
+	if allyID == nil then
+		return SELECTED_ALLY_TEAM_ALL
+	end
+	return tostring(allyID)
+end
+
 local function Clamp(value, minValue, maxValue)
 	if value < minValue then
 		return minValue, true
@@ -715,10 +760,10 @@ local function LoadUIState()
 	local savedSortKey = spGetConfigString('WeightedTeamStats_SortKey', 'metalProduced')
 	sortKey = savedSortKey ~= '' and savedSortKey or nil
 	sortAscending = spGetConfigString('WeightedTeamStats_SortAscending', 'false') == 'true'
-	local savedAllyTeamRaw = spGetConfigString('WeightedTeamStats_SelectedAllyTeam', '')
-	local savedAllyTeam = tonumber(savedAllyTeamRaw)
+	local savedAllyTeamRaw = spGetConfigString(SELECTED_ALLY_TEAM_CONFIG_KEY, SELECTED_ALLY_TEAM_MISSING)
+	local savedAllyTeam, hasSavedAllyTeam = DecodeSelectedAllyTeamConfig(savedAllyTeamRaw)
 	selectedAllyTeam = savedAllyTeam
-	if savedAllyTeamRaw == '' and (isRaptors or isScavengers) then
+	if not hasSavedAllyTeam and (isRaptors or isScavengers) then
 		selectedAllyTeam = 0 -- Team 1 (players)
 	end
 end
@@ -738,7 +783,7 @@ local function SaveUIState()
 	spSetConfigString('WeightedTeamStats_FontScale3', tostring(fontScale3))
 	spSetConfigString('WeightedTeamStats_SortKey', sortKey or '')
 	spSetConfigString('WeightedTeamStats_SortAscending', tostring(sortAscending))
-	spSetConfigString('WeightedTeamStats_SelectedAllyTeam', selectedAllyTeam and tostring(selectedAllyTeam) or '')
+	spSetConfigString(SELECTED_ALLY_TEAM_CONFIG_KEY, EncodeSelectedAllyTeamConfig(selectedAllyTeam))
 end
 
 local function UpdateDocumentPosition()
@@ -1040,7 +1085,8 @@ local function UpdateRMLuiData()
 		allyTeamsData = { { id = -1, players = allPlayers } }
 	end
 
-	-- nil = "All" is always valid; only fix up a stale non-nil teamID
+	-- nil = "All" is always valid. Validate specific ally teams against the live game list,
+	-- not just cached stats, because spectators can see ally teams before their stats arrive.
 	if selectedAllyTeam ~= nil then
 		local found = false
 		for _, allyInfo in ipairs(cachedAllyTeams) do
@@ -1049,7 +1095,7 @@ local function UpdateRMLuiData()
 				break
 			end
 		end
-		if not found then
+		if not found and HasSelectableAllyTeams() and not IsSelectableAllyTeam(selectedAllyTeam) then
 			selectedAllyTeam = nil
 		end
 	end
