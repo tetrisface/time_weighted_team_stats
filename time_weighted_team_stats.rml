@@ -9,7 +9,7 @@
 	<div id="wts-panel" class="panel" data-model="weighted_team_stats" onmouseup="widget:OnDragEnd(event)">
 		<!-- Title Bar -->
 		<div id="wts-title-bar" class="title-bar">
-			<handle move_target="wts-panel">
+			<handle move_target="wts-panel" edge_margin="none">
 				<div class="title-content">
 					<span class="title-text">Time Weighted Team Stats</span>
 				</div>
@@ -84,7 +84,7 @@
 		</div>
 
 		<!-- Corner Resize Handle -->
-		<handle size_target="wts-panel" class="resize-handle">
+		<handle size_target="wts-panel" edge_margin="none" class="resize-handle">
 			<div class="resize-grip"></div>
 		</handle>
 	</div>
