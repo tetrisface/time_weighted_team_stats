@@ -7,6 +7,7 @@ local WIDGET_NAME = 'Time Weighted Team Stats'
 local MODEL_NAME = 'weighted_team_stats'
 local RML_PATH = 'luaui/rmlwidgets/time_weighted_team_stats/time_weighted_team_stats.rml'
 local STATS_UPDATE_FREQUENCY = 60 -- ~2 seconds
+local LOBBY_OVERLAY_MESSAGE_PREFIX = 'LobbyOverlayActive'
 
 function widget:GetInfo()
 	return {
@@ -539,12 +540,35 @@ local fontScale2 = 1.0  -- graph labels, tooltips, guidelines
 local fontScale3 = 1.0  -- table columns and cells
 local isCtrlDown = false
 local windowAggregation = 8 -- merge N engine snapshots into one window
-local lastUIHiddenState = false
+local lobbyOverlayActive = false
+local lastDocumentHiddenState = nil
 local loadedPositionFromConfig = false
 local loadedSizeFromConfig = false
 local SELECTED_ALLY_TEAM_CONFIG_KEY = 'WeightedTeamStats_SelectedAllyTeam'
 local SELECTED_ALLY_TEAM_ALL = 'all'
 local SELECTED_ALLY_TEAM_MISSING = '__missing__'
+
+local function ShouldHideDocument()
+	return spIsGUIHidden() or lobbyOverlayActive
+end
+
+local function UpdateDocumentVisibility()
+	if not document then
+		return
+	end
+
+	local isHidden = ShouldHideDocument()
+	if isHidden == lastDocumentHiddenState then
+		return
+	end
+
+	lastDocumentHiddenState = isHidden
+	if isHidden then
+		document:Hide()
+	else
+		document:Show()
+	end
+end
 
 -- Cached computation results
 local cachedShares = {}
@@ -1422,9 +1446,8 @@ function widget:Initialize()
 	applyFontScale('wts-stat-selector', fontScale1)
 	applyFontScale('wts-table-area', fontScale3)
 
-	if not spIsGUIHidden() then
-		document:Show()
-	end
+	lastDocumentHiddenState = nil
+	UpdateDocumentVisibility()
 
 	UpdateDocumentPosition()
 
@@ -1449,15 +1472,7 @@ function widget:Update()
 		return
 	end
 
-	local isHidden = spIsGUIHidden()
-	if isHidden ~= lastUIHiddenState then
-		lastUIHiddenState = isHidden
-		if isHidden then
-			document:Hide()
-		else
-			document:Show()
-		end
-	end
+	UpdateDocumentVisibility()
 
 	-- Process dirty flags here so UI responds when paused/post-game (no GameFrame calls)
 	if dataDirty then
@@ -1488,7 +1503,7 @@ function widget:GameFrame()
 end
 
 function widget:DrawScreen()
-	if spIsGUIHidden() or not document or not graphVisible then
+	if ShouldHideDocument() or not document or not graphVisible then
 		return
 	end
 
@@ -1688,6 +1703,15 @@ function widget:DrawScreen()
 
 	glColor(1, 1, 1, 1)
 	glLineWidth(1)
+end
+
+function widget:RecvLuaMsg(message)
+	if message:sub(1, #LOBBY_OVERLAY_MESSAGE_PREFIX) ~= LOBBY_OVERLAY_MESSAGE_PREFIX then
+		return
+	end
+
+	lobbyOverlayActive = message:sub(#LOBBY_OVERLAY_MESSAGE_PREFIX + 1, #LOBBY_OVERLAY_MESSAGE_PREFIX + 1) == '1'
+	UpdateDocumentVisibility()
 end
 
 function widget:Shutdown()
